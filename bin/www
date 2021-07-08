@@ -1,0 +1,40 @@
+#!/usr/bin/env node
+
+/**
+ * Module dependencies.
+ */
+
+;(async function () {
+    const app = require('../app')
+    const port = process.env.PORT || '3000'
+    const Promise = require('bluebird')
+    const fs = Promise.promisifyAll(require('fs-extra'))
+    const http2 = require('spdy')
+    const path = require('path')
+
+    const ssl_cert = process.env.ssl_cert || 'server.crt'
+    const ssl_key = process.env.ssl_key || 'server.key'
+    app.set('port', port)
+
+    const createServer = () => {
+        return http2
+            .createServer(
+                {
+                    key: fs.readFileSync(path.join(__dirname, `../ssl/${ssl_key}`)),
+                    cert: fs.readFileSync(path.join(__dirname, `../ssl/${ssl_cert}`))
+                },
+                app
+            )
+            .listen(port, (error) => {
+                if (error) {
+                    console.error(error)
+                    return process.exit(1)
+                } else {
+                    console.log('Listening on port: ' + port + '.')
+                    process.send = process.send || function () {}
+                    process.send('ready')
+                }
+            })
+    }
+    createServer()
+})()
