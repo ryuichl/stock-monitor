@@ -1,6 +1,7 @@
 ;(async function () {
     try {
         const argv = require('yargs').argv
+        const Promise = require('bluebird')
         const tdaclient = require('tda-api-client')
         const dayjs = require('dayjs')
         const technicalIndicators = require('technicalindicators')
@@ -10,6 +11,7 @@
 
         const get_history = async (target) => {
             const config = {
+                startDate: dayjs().add(-3, 'year').valueOf(),
                 periodType: tdaclient.pricehistory.PERIOD_TYPE.YEAR,
                 frequencyType: tdaclient.pricehistory.FREQUENCY_TYPE.MONTH.DAILY,
                 frequency: tdaclient.pricehistory.FREQUENCY.DAILY.ONE,
@@ -60,7 +62,8 @@
                 if (!row.sma5 || !row.sma10 || !row.sma20) {
                     return array
                 }
-                if (pre_row.sma5 < pre_row.sma10 && row.sma5 > row.sma10 && row.sma5 > row.sma20 && row.sma10 > row.sma20 && row.volume > pre_row.sma5_volume && i === 'sell') {
+                //pre_row.sma5 < pre_row.sma10 && row.sma5 > row.sma10 && row.sma5 > row.sma20 && row.sma10 > row.sma20 && row.volume > pre_row.sma5_volume && i === 'sell'
+                if (row.sma5 > row.sma10 && row.sma5 > row.sma20 && row.volume > pre_row.sma5_volume && i === 'sell') {
                     i = 'buy'
                     row.action = 'buy'
                     array.push(row)
@@ -74,11 +77,35 @@
             }, [])
             return result
         }
-
+        const calculate = (input) => {
+            let doller = 1000
+            let stock = 0
+            input.map((row) => {
+                if (row.action === 'buy') {
+                    // stock = doller / ((row.open + row.close) / 2)
+                    stock = doller / row.sma5
+                    doller = 0
+                    row.price = row.sma5
+                } else if (row.action === 'sell') {
+                    doller = stock * row.sma20
+                    stock = 0
+                    row.price = row.sma20
+                }
+                row.stock = stock.toFixed(2)
+                row.doller = doller.toFixed(2)
+                // console.log({ date: row.date, action: row.action, price: row.price, stock: stock.toFixed(2), doller: doller.toFixed(2) })
+            })
+            return input
+        }
+        // SHOP QQQ VTI VOO AMZN NVDA
+        // const targets = ['QQQ', 'VTI', 'VOO', 'SHOP', 'AMZN', 'NVDA', 'AAPL', 'FB']
+        const targets = ['TSLA', 'GOOG', 'GOOGL', 'MSFT', 'PYPL', 'NFLX']
         const target = 'AMZN'
         if (argv.job === 'init') {
-            const data = await get_history(target)
-            await fs.outputJSON(`./db/${target}.json`, data)
+            await Promise.mapSeries(targets, async (target) => {
+                const data = await get_history(target)
+                await fs.outputJSON(`./db/${target}.json`, data)
+            })
             console.log('done')
             return process.exit(0)
         } else if (argv.job === 'sort') {
@@ -93,11 +120,19 @@
             await fs.outputJSON(`./db/${target}_find.json`, find)
             console.log('done')
             return process.exit(0)
+        } else if (argv.job === 'cal') {
+            const find = await fs.readJSON(`./db/${target}_find.json`)
+            calculate(find)
+            console.log('done')
+            return process.exit(0)
         } else if (argv.job === 'all') {
-            const history = await get_history(target)
-            const sma = get_sma(history)
-            const point = find_point(sma)
-            await fs.outputJSON(`./db/${target}_find.json`, point)
+            await Promise.mapSeries(targets, async (target) => {
+                const history = await fs.readJSON(`./db/${target}.json`)
+                const sma = get_sma(history)
+                const point = find_point(sma)
+                calculate(point)
+                await fs.outputJSON(`./db/${target}_find.json`, point)
+            })
             console.log('done')
             return process.exit(0)
         }
